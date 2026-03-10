@@ -22,7 +22,7 @@ from uk_resell_adk.models import CandidateItem, MarketplaceSite, ProfitabilityAs
 from uk_resell_adk.sources import HLJAdapter, NinNinGameAdapter, SurugaYaAdapter
 from uk_resell_adk.sources.base import SourceAdapter
 from uk_resell_adk.sources.common import configure_debug, refresh_currency_rates
-from uk_resell_adk.tracing import traceable
+from uk_resell_adk.tracing import add_trace_attributes, add_trace_event, traceable
 
 
 USER_AGENT = "uk-resell-adk/0.2 (+research assistant)"
@@ -188,7 +188,7 @@ def get_source_diagnostics() -> list[dict]:
 @traceable(name="discover_foreign_marketplaces", run_type="tool")
 def discover_foreign_marketplaces() -> list[MarketplaceSite]:
     """Return configured source marketplaces exposed to the workflow."""
-    return [
+    marketplaces = [
         MarketplaceSite(
             name=adapter.descriptor.name,
             country=adapter.descriptor.country,
@@ -197,13 +197,22 @@ def discover_foreign_marketplaces() -> list[MarketplaceSite]:
         )
         for adapter in _enabled_source_adapters()
     ]
+    add_trace_attributes(
+        {
+            "marketplace.count": len(marketplaces),
+            "marketplace.names": [market.name for market in marketplaces],
+        }
+    )
+    return marketplaces
 
 
 @traceable(name="find_candidate_items", run_type="tool")
 def find_candidate_items(marketplace: MarketplaceSite) -> list[CandidateItem]:
     """Fetch candidate items from one marketplace and update diagnostics."""
+    add_trace_attributes({"marketplace.name": marketplace.name, "marketplace.url": marketplace.url})
     adapter = _get_adapter_for_marketplace(marketplace)
     if adapter is None:
+        add_trace_event("marketplace.adapter_missing", {"marketplace": marketplace.name})
         return []
 
     try:
@@ -215,6 +224,13 @@ def find_candidate_items(marketplace: MarketplaceSite) -> list[CandidateItem]:
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning("Source adapter fetch failed for %s: %s", marketplace.name, exc)
+        add_trace_event(
+            "marketplace.fetch_error",
+            {
+                "marketplace": marketplace.name,
+                "error": str(exc),
+            },
+        )
         _record_source_diagnostics(
             source_name=marketplace.name,
             status="fetch_error",
@@ -254,6 +270,27 @@ def find_candidate_items(marketplace: MarketplaceSite) -> list[CandidateItem]:
         blocked_examples=list(meta.get("blocked_examples", []))[:5],
         parse_miss_examples=list(meta.get("parse_miss_examples", []))[:5],
         fetch_error_examples=list(meta.get("fetch_error_examples", []))[:5],
+    )
+    add_trace_attributes(
+        {
+            "marketplace.status": status,
+            "marketplace.live_count": live_count,
+            "marketplace.fallback_count": fallback_count,
+            "marketplace.blocked_count": blocked_count,
+            "marketplace.parse_miss_count": parse_miss_count,
+            "marketplace.error_count": error_count,
+            "marketplace.candidate_count": len(deduped),
+        }
+    )
+    add_trace_event(
+        "marketplace.fetch_complete",
+        {
+            "marketplace": marketplace.name,
+            "status": status,
+            "live_count": live_count,
+            "fallback_count": fallback_count,
+            "candidate_count": len(deduped),
+        },
     )
 
     if SOURCE_RUNTIME.strict_live and adapter.descriptor.strict_live_required and live_count == 0:
@@ -322,6 +359,7 @@ def _safe_fetch_ebay_price_snapshots(query: str) -> list[float]:
 @traceable(name="assess_profitability_against_ebay", run_type="tool")
 def assess_profitability_against_ebay(item: CandidateItem) -> ProfitabilityAssessment:
     """Estimate resale profitability using eBay sold listing snapshots."""
+    add_trace_attributes({"item.title": item.title, "item.url": item.url})
     sold_prices = _safe_fetch_ebay_price_snapshots(item.title)
     benchmark = median(sold_prices) if sold_prices else item.source_price_gbp * 1.35
 
@@ -337,7 +375,7 @@ def assess_profitability_against_ebay(item: CandidateItem) -> ProfitabilityAsses
     else:
         confidence = "low"
 
-    return ProfitabilityAssessment(
+    assessment = ProfitabilityAssessment(
         item_title=item.title,
         item_url=item.url,
         total_landed_cost_gbp=round(landed_cost, 2),
@@ -347,3 +385,22 @@ def assess_profitability_against_ebay(item: CandidateItem) -> ProfitabilityAsses
         estimated_margin_percent=round(margin, 2),
         confidence=confidence,
     )
+    add_trace_attributes(
+        {
+            "assessment.sold_price_sample_count": len(sold_prices),
+            "assessment.ebay_median_sale_price_gbp": assessment.ebay_median_sale_price_gbp,
+            "assessment.total_landed_cost_gbp": assessment.total_landed_cost_gbp,
+            "assessment.estimated_profit_gbp": assessment.estimated_profit_gbp,
+            "assessment.estimated_margin_percent": assessment.estimated_margin_percent,
+            "assessment.confidence": assessment.confidence,
+        }
+    )
+    add_trace_event(
+        "assessment.completed",
+        {
+            "item_title": item.title,
+            "profit_gbp": assessment.estimated_profit_gbp,
+            "confidence": assessment.confidence,
+        },
+    )
+    return assessment

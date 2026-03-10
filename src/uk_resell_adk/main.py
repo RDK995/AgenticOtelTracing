@@ -17,7 +17,7 @@ from uk_resell_adk.tools import (
     get_source_diagnostics,
     reset_source_diagnostics,
 )
-from uk_resell_adk.tracing import configure_tracing, traceable
+from uk_resell_adk.tracing import add_trace_attributes, add_trace_event, configure_tracing, start_trace_span, traceable
 
 
 def _select_top_profitable_assessments(
@@ -54,18 +54,50 @@ def _select_report_candidates(
 @traceable(name="run_local_dry_run", run_type="chain")
 def run_local_dry_run() -> dict:
     """Run the end-to-end workflow: deep sourcing, full analysis, focused report shortlist."""
+    add_trace_event("workflow.start")
     reset_source_diagnostics()
-    marketplaces = discover_foreign_marketplaces()[: DEFAULT_CONFIG.max_foreign_sites]
+    with start_trace_span("workflow.discover_marketplaces", {"workflow.stage": "discover"}):
+        marketplaces = discover_foreign_marketplaces()[: DEFAULT_CONFIG.max_foreign_sites]
+    add_trace_attributes(
+        {
+            "workflow.marketplace_count": len(marketplaces),
+            "workflow.marketplaces": [market.name for market in marketplaces],
+        }
+    )
 
     candidates: list[CandidateItem] = []
-    for market in marketplaces:
-        candidates.extend(find_candidate_items(market))
+    with start_trace_span("workflow.source_candidates", {"workflow.stage": "sourcing"}):
+        for market in marketplaces:
+            with start_trace_span("workflow.source_marketplace", {"marketplace.name": market.name}):
+                market_candidates = find_candidate_items(market)
+                candidates.extend(market_candidates)
+                add_trace_event(
+                    "workflow.marketplace_processed",
+                    {
+                        "marketplace": market.name,
+                        "candidate_count": len(market_candidates),
+                    },
+                )
 
-    all_assessments = [assess_profitability_against_ebay(item) for item in candidates]
-    shortlisted_assessments = _select_top_profitable_assessments(
-        all_assessments, limit=DEFAULT_CONFIG.max_items_per_source
+    with start_trace_span("workflow.assess_profitability", {"workflow.stage": "assessment"}):
+        all_assessments = [assess_profitability_against_ebay(item) for item in candidates]
+    profitable_count = sum(1 for item in all_assessments if item.estimated_profit_gbp > 0)
+    with start_trace_span("workflow.shortlist_report", {"workflow.stage": "shortlist"}):
+        shortlisted_assessments = _select_top_profitable_assessments(
+            all_assessments, limit=DEFAULT_CONFIG.max_items_per_source
+        )
+        report_candidates = _select_report_candidates(candidates, shortlisted_assessments)
+    top_profit = shortlisted_assessments[0].estimated_profit_gbp if shortlisted_assessments else 0
+    add_trace_attributes(
+        {
+            "workflow.candidate_count": len(candidates),
+            "workflow.assessment_count": len(all_assessments),
+            "workflow.profitable_assessment_count": profitable_count,
+            "workflow.shortlisted_count": len(shortlisted_assessments),
+            "workflow.top_profit_gbp": round(top_profit, 2),
+        }
     )
-    report_candidates = _select_report_candidates(candidates, shortlisted_assessments)
+    add_trace_event("workflow.complete")
     return {
         "marketplaces": [m.to_dict() for m in marketplaces],
         "candidate_items": [c.to_dict() for c in report_candidates],

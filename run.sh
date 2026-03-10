@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 export PYTHONPATH="$ROOT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="${PYTHON_BIN_FALLBACK:-python}"
+fi
 
 if [[ -f "$ROOT_DIR/.env" ]]; then
   set -a
@@ -21,9 +25,29 @@ _truthy() {
   esac
 }
 
+_require_python_311() {
+  if "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
+    return 0
+  fi
+  echo "Error: Python >=3.11 is required. Current interpreter: $("$PYTHON_BIN" -c 'import sys; print(sys.executable)') ($("$PYTHON_BIN" -V 2>&1))." >&2
+  exit 1
+}
+
+_require_python_module() {
+  local module_name="$1"
+  if "$PYTHON_BIN" -c "import ${module_name}" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Error: Python module '${module_name}' is required but not installed in $("$PYTHON_BIN" -c 'import sys; print(sys.executable)')." >&2
+  exit 1
+}
+
+_require_python_311
+
 if _truthy "${ENABLE_LANGFUSE_TRACING:-true}" \
   && [[ -n "${LANGFUSE_PUBLIC_KEY:-}" ]] \
   && [[ -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
+  _require_python_module "langfuse"
   export LANGFUSE_USER_ID="${LANGFUSE_USER_ID:-${USER:-unknown-user}}"
   export LANGFUSE_SESSION_ID="${LANGFUSE_SESSION_ID:-uk-resell-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 fi
@@ -59,7 +83,7 @@ if [[ $# -gt 0 ]]; then
 fi
 
 if [[ "$mode" == "local" ]]; then
-  python -m uk_resell_adk.main "$@"
+  "$PYTHON_BIN" -m uk_resell_adk.main "$@"
   exit 0
 fi
 

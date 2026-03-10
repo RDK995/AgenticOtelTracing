@@ -6,6 +6,7 @@ from uk_resell_adk import tracing
 
 
 def test_configure_tracing_langsmith_does_nothing_without_api_key(monkeypatch: Any) -> None:
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
     monkeypatch.setenv("ENABLE_LANGSMITH_TRACING", "true")
     monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
@@ -18,6 +19,7 @@ def test_configure_tracing_langsmith_does_nothing_without_api_key(monkeypatch: A
 
 
 def test_configure_tracing_sets_langsmith_defaults_with_api_key(monkeypatch: Any) -> None:
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
     monkeypatch.setenv("LANGSMITH_API_KEY", "key")
     monkeypatch.setenv("ENABLE_LANGSMITH_TRACING", "true")
     monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
@@ -30,6 +32,7 @@ def test_configure_tracing_sets_langsmith_defaults_with_api_key(monkeypatch: Any
 
 
 def test_configure_tracing_sets_langfuse_defaults_with_keys(monkeypatch: Any) -> None:
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
     monkeypatch.setenv("ENABLE_LANGFUSE_TRACING", "true")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk")
@@ -44,6 +47,7 @@ def test_configure_tracing_sets_langfuse_defaults_with_keys(monkeypatch: Any) ->
 
 
 def test_configure_tracing_preserves_existing_langsmith_values(monkeypatch: Any) -> None:
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
     monkeypatch.setenv("LANGSMITH_API_KEY", "key")
     monkeypatch.setenv("ENABLE_LANGSMITH_TRACING", "true")
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
@@ -56,6 +60,7 @@ def test_configure_tracing_preserves_existing_langsmith_values(monkeypatch: Any)
 
 
 def test_traceable_returns_passthrough_when_providers_disabled(monkeypatch: Any) -> None:
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
     monkeypatch.setenv("ENABLE_LANGSMITH_TRACING", "false")
     monkeypatch.setenv("ENABLE_LANGFUSE_TRACING", "false")
     monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
@@ -74,6 +79,7 @@ def test_traceable_returns_passthrough_when_providers_disabled(monkeypatch: Any)
 
 def test_traceable_delegates_to_both_when_available(monkeypatch: Any) -> None:
     events: list[str] = []
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
 
     def fake_langsmith_traceable(*args: Any, **kwargs: Any):
         assert kwargs == {"name": "abc", "run_type": "tool"}
@@ -120,6 +126,7 @@ def test_traceable_delegates_to_both_when_available(monkeypatch: Any) -> None:
 
 def test_traceable_sets_langfuse_session_and_user_on_current_trace(monkeypatch: Any) -> None:
     updates: list[dict[str, Any]] = []
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
 
     class _FakeLangfuseContext:
         @staticmethod
@@ -156,6 +163,7 @@ def test_traceable_sets_langfuse_session_and_user_on_current_trace(monkeypatch: 
 
 def test_traceable_prefers_langfuse_propagate_attributes(monkeypatch: Any) -> None:
     updates: list[dict[str, Any]] = []
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
 
     class _FakeContextManager:
         def __init__(self, payload: dict[str, Any]) -> None:
@@ -199,6 +207,7 @@ def test_traceable_prefers_langfuse_propagate_attributes(monkeypatch: Any) -> No
 
 
 def test_traceable_does_not_swallow_wrapped_function_exceptions_with_propagation(monkeypatch: Any) -> None:
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "false")
     class ExpectedError(RuntimeError):
         pass
 
