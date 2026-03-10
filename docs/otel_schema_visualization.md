@@ -7,6 +7,11 @@ erDiagram
     traces {
         text trace_id PK
         text root_span_id
+        text trace_name
+        text user_id
+        text session_id
+        text trace_input
+        text trace_output
         text service_name
         text environment
         timestamptz start_time
@@ -24,6 +29,9 @@ erDiagram
         text parent_span_id
         text service_name
         text span_name
+        text scope_name
+        text scope_version
+        jsonb scope_attributes
         text kind
         timestamptz start_time
         timestamptz end_time
@@ -74,6 +82,7 @@ erDiagram
     traces ||--o{ spans : "trace_id"
     spans ||--o{ span_events : "trace_id + span_id"
     spans ||--o{ span_links : "trace_id + span_id"
+    export_watermarks ||--o{ export_attempts : "destination"
 ```
 
 ## Partitioning
