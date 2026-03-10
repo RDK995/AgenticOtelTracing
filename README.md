@@ -106,6 +106,91 @@ Each exporter drains all pending spans by default.
 ## Storage Model
 
 Schema file: `infra/postgres/init/001_otel_schema.sql`
+Full schema visualization: `docs/otel_schema_visualization.md`
+
+### ER Diagram
+
+```mermaid
+erDiagram
+    traces {
+        text trace_id PK
+        text root_span_id
+        text trace_name
+        text user_id
+        text session_id
+        text trace_input
+        text trace_output
+        text service_name
+        text environment
+        timestamptz start_time
+        timestamptz end_time
+        float duration_ms
+        text status_code
+        text status_message
+        jsonb resource_attributes
+    }
+
+    spans {
+        text trace_id
+        text span_id
+        text parent_span_id
+        text service_name
+        text span_name
+        text scope_name
+        text scope_version
+        jsonb scope_attributes
+        text kind
+        timestamptz start_time
+        timestamptz end_time
+        float duration_ms
+        text status_code
+        text status_message
+        jsonb attributes
+        int events_count
+        int links_count
+        timestamptz ingestion_time
+    }
+
+    span_events {
+        text trace_id
+        text span_id
+        timestamptz event_time
+        text event_name
+        jsonb attributes
+        timestamptz ingestion_time
+    }
+
+    span_links {
+        text trace_id
+        text span_id
+        text linked_trace_id
+        text linked_span_id
+        jsonb attributes
+        timestamptz ingestion_time
+    }
+
+    export_watermarks {
+        text destination PK
+        timestamptz watermark_time
+        timestamptz updated_at
+    }
+
+    export_attempts {
+        bigint id PK
+        text destination
+        text trace_id
+        text span_id
+        timestamptz attempted_at
+        boolean success
+        text status_code
+        text error_message
+    }
+
+    traces ||--o{ spans : "trace_id"
+    spans ||--o{ span_events : "trace_id + span_id"
+    spans ||--o{ span_links : "trace_id + span_id"
+    export_watermarks ||--o{ export_attempts : "destination"
+```
 
 Key tables:
 
@@ -201,18 +286,3 @@ export DYNATRACE_API_TOKEN="dt0c01...."
 
 ---
 
-## Troubleshooting
-
-- No new traces in tools:
-  - ensure ingest process is running: `./scripts/postgres/start_otel_ingest.sh`
-  - verify `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces`
-  - verify Postgres span timestamps are advancing
-
-- Export says success but UI is empty:
-  - widen destination time window
-  - remove restrictive service/span filters
-  - confirm you are in the correct tenant/project
-
-- Export fails:
-  - inspect `otel.export_attempts.error_message`
-  - validate endpoint/auth/token scopes in `.env`
